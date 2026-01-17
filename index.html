@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stickman Combat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Stickman Combat</h1>
+      <div class="hud">
+        <div>HP: <span id="hp">100</span></div>
+        <div>Enemy HP: <span id="ehp">100</span></div>
+        <div>Combo: <span id="combo">0</span></div>
+      </div>
+    </header>
+
+    <canvas id="c" width="960" height="540"></canvas>
+
+    <div class="help">
+      <b>Comandi</b>: A/D muovi, W salto, J attacco, K dash, L shockwave, I fireball, R restart
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
