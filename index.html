@@ -2,8 +2,8 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Stickman Combat</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Stickman Combat (Mobile)</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -17,10 +17,30 @@
       </div>
     </header>
 
-    <canvas id="c" width="960" height="540"></canvas>
+    <div class="stage">
+      <canvas id="c" width="960" height="540"></canvas>
+
+      <!-- MOBILE CONTROLS -->
+      <div class="mobile-ui" id="mobileUI">
+        <div class="joy" id="joy">
+          <div class="joy-base"></div>
+          <div class="joy-knob" id="joyKnob"></div>
+        </div>
+
+        <div class="buttons">
+          <button class="btn big" data-act="jump">Jump</button>
+          <button class="btn big" data-act="attack">Atk</button>
+          <button class="btn" data-act="dash">Dash</button>
+          <button class="btn" data-act="shock">Shock</button>
+          <button class="btn" data-act="fire">Fire</button>
+        </div>
+      </div>
+    </div>
 
     <div class="help">
-      <b>Comandi</b>: A/D muovi, W salto, J attacco, K dash, L shockwave, I fireball, R restart
+      <b>PC</b>: A/D muovi, W salto, J attacco, K dash, L shockwave, I fireball, R restart.
+      <br/>
+      <b>Telefono</b>: joystick + pulsanti.
     </div>
   </div>
 
