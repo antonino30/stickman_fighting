@@ -5,5 +5,75 @@ body { margin:0; background:var(--bg); color:var(--fg); display:flex; justify-co
 header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
 h1 { margin:6px 0 10px; font-size:20px; }
 .hud { display:flex; gap:16px; color:var(--muted); font-size:14px; flex-wrap:wrap; }
-canvas { width:100%; height:auto; border-radius:16px; background:#071022; box-shadow:0 10px 30px rgba(0,0,0,.35); display:block; }
+
+.stage { position: relative; }
+canvas {
+  width:100%;
+  height:auto;
+  border-radius:16px;
+  background:#071022;
+  box-shadow:0 10px 30px rgba(0,0,0,.35);
+  display:block;
+  touch-action: none; /* IMPORTANT: no scroll/pinch over canvas */
+}
+
 .help { margin-top:10px; color:var(--muted); font-size:13px; }
+
+/* MOBILE UI overlay */
+.mobile-ui {
+  position:absolute;
+  inset:0;
+  pointer-events:none; /* enable only on children */
+}
+
+.joy {
+  position:absolute;
+  left:14px;
+  bottom:14px;
+  width:140px;
+  height:140px;
+  pointer-events:auto;
+}
+.joy-base {
+  position:absolute;
+  inset:0;
+  border-radius:999px;
+  background: rgba(15,27,51,0.65);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.joy-knob {
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:56px;
+  height:56px;
+  transform: translate(-50%, -50%);
+  border-radius:999px;
+  background: rgba(143,176,255,0.75);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.buttons {
+  position:absolute;
+  right:14px;
+  bottom:14px;
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  width:220px;
+  pointer-events:auto;
+}
+.btn {
+  border:0;
+  padding:12px 10px;
+  border-radius:14px;
+  background:#1a2a4a;
+  color:var(--fg);
+  font-size:14px;
+}
+.btn.big { grid-column: span 1; font-size:15px; padding:14px 10px; }
+.btn:active { transform: scale(0.98); filter: brightness(1.1); }
+
+/* Hide mobile UI on big screens if you want:
+@media (min-width: 900px) { .mobile-ui { display:none; } }
+*/
