@@ -6,7 +6,89 @@ const uiHP = document.getElementById("hp");
 const uiEHP = document.getElementById("ehp");
 const uiCombo = document.getElementById("combo");
 
+// ---- PC keys (fallback) ----
 const keys = new Set();
+window.addEventListener("keydown", (e) => keys.add(e.key.toLowerCase()));
+window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+
+// ---- Mobile input state ----
+const input = {
+  moveX: 0,       // -1..1
+  jump: false,
+  attack: false,
+  dash: false,
+  shock: false,
+  fire: false,
+  restart: false,
+};
+function consumeAction(name){
+  if (input[name]) { input[name] = false; return true; }
+  return false;
+}
+function consumeKeyOnce(k){
+  if (keys.has(k)) { keys.delete(k); return true; }
+  return false;
+}
+
+// ---- Touch joystick ----
+const joy = document.getElementById("joy");
+const joyKnob = document.getElementById("joyKnob");
+
+let joyActive = false;
+let joyCenter = {x:0,y:0};
+let joyId = null;
+
+function setKnob(dx, dy){
+  const maxR = 44;
+  const r = Math.hypot(dx, dy);
+  const k = r > maxR ? (maxR / r) : 1;
+  const nx = dx * k, ny = dy * k;
+  joyKnob.style.transform = `translate(${nx}px, ${ny}px) translate(-50%, -50%)`;
+  input.moveX = clamp(nx / maxR, -1, 1);
+}
+
+joy.addEventListener("pointerdown", (e) => {
+  joyActive = true;
+  joyId = e.pointerId;
+  joy.setPointerCapture(joyId);
+  const rect = joy.getBoundingClientRect();
+  joyCenter.x = rect.left + rect.width/2;
+  joyCenter.y = rect.top + rect.height/2;
+  setKnob(e.clientX - joyCenter.x, e.clientY - joyCenter.y);
+});
+joy.addEventListener("pointermove", (e) => {
+  if (!joyActive || e.pointerId !== joyId) return;
+  setKnob(e.clientX - joyCenter.x, e.clientY - joyCenter.y);
+});
+joy.addEventListener("pointerup", (e) => {
+  if (e.pointerId !== joyId) return;
+  joyActive = false;
+  joyId = null;
+  input.moveX = 0;
+  joyKnob.style.transform = "translate(-50%, -50%)";
+});
+joy.addEventListener("pointercancel", () => {
+  joyActive = false;
+  joyId = null;
+  input.moveX = 0;
+  joyKnob.style.transform = "translate(-50%, -50%)";
+});
+
+// ---- Buttons ----
+document.querySelectorAll(".btn").forEach(btn => {
+  const act = btn.getAttribute("data-act");
+  btn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (act === "jump") input.jump = true;
+    if (act === "attack") input.attack = true;
+    if (act === "dash") input.dash = true;
+    if (act === "shock") input.shock = true;
+    if (act === "fire") input.fire = true;
+  });
+});
+
+// Prevent page scroll during gameplay
+document.body.addEventListener("touchmove", (e) => e.preventDefault(), { passive:false });
 
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
@@ -20,27 +102,25 @@ const world = {
   shakeT: 0,
 };
 
-const fx = [];      // particelle & slash
-const proj = [];    // proiettili
-const hitboxes = []; // hitbox attive (melee/ability)
+const fx = [];
+const proj = [];
+const hitboxes = [];
 
 function addFX(p){ fx.push(p); }
 function addShake(power, t=0.2){ world.shake = Math.max(world.shake, power); world.shakeT = Math.max(world.shakeT, t); }
 
-function sfxText(x,y,txt,life=0.5){
-  addFX({type:"text", x, y, txt, vy:-80, life, t:0});
-}
-
 function spawnSlash(x,y,dir){
   addFX({type:"slash", x, y, dir, life:0.18, t:0});
 }
-
 function spawnBurst(x,y,n=18){
   for(let i=0;i<n;i++){
     const a = Math.random()*Math.PI*2;
     const sp = 180 + Math.random()*420;
     addFX({type:"p", x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life:0.5+Math.random()*0.4, t:0});
   }
+}
+function sfxText(x,y,txt,life=0.5){
+  addFX({type:"text", x, y, txt, vy:-80, life, t:0});
 }
 
 function rectsOverlap(a,b){
@@ -55,27 +135,17 @@ function makeFighter(x, team){
     facing: team === "P" ? 1 : -1,
     hp: 100,
     onGround: true,
-
-    // anim pose
     pose: "idle",
     poseT: 0,
-
-    // combo
     combo: 0,
     comboT: 0,
     invT: 0,
-
-    // cooldowns
     cd: { dash:0, shock:0, fire:0 },
-
-    // AI
     aiT: 0,
   };
 }
 
-let P = makeFighter(220, "P");
-let E = makeFighter(740, "E");
-
+let P, E;
 function reset(){
   P = makeFighter(220, "P");
   E = makeFighter(740, "E");
@@ -86,17 +156,15 @@ function reset(){
   world.slowT = 0;
   world.shake = 0;
   world.shakeT = 0;
+  uiCombo.textContent = "0";
 }
 reset();
 
-// ---- INPUT ----
 window.addEventListener("keydown", (e) => {
-  keys.add(e.key.toLowerCase());
   if (e.key.toLowerCase() === "r") reset();
 });
-window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
 
-// ---- COMBAT SYSTEM ----
+// ---- COMBAT ----
 function hurt(target, dmg, knockX, knockY, attacker){
   if (target.invT > 0) return;
 
@@ -106,7 +174,6 @@ function hurt(target, dmg, knockX, knockY, attacker){
   target.vx += knockX;
   target.vy += knockY;
 
-  // combo solo per player
   if (attacker && attacker.team === "P"){
     attacker.combo += 1;
     attacker.comboT = 1.2;
@@ -117,8 +184,8 @@ function hurt(target, dmg, knockX, knockY, attacker){
   sfxText(target.x, target.y - 120, `-${dmg}`, 0.6);
   addShake(10, 0.15);
 
-  if (dmg >= 18){ // "cinematic moment"
-    world.slowT = 0.18;
+  if (dmg >= 18){
+    world.slowT = Math.max(world.slowT, 0.18);
     addShake(18, 0.25);
   }
 }
@@ -128,7 +195,6 @@ function addHitbox(owner, x,y,w,h, life, dmg, kx, ky){
 }
 
 function attackBasic(f){
-  // combo 1-2-3
   const step = (f.combo % 3) + 1;
   f.pose = "atk" + step;
   f.poseT = 0.12;
@@ -169,7 +235,6 @@ function abilityShockwave(f){
   f.pose = "shock";
   f.poseT = 0.22;
 
-  // onda a terra: grande hitbox davanti + FX
   const dir = f.facing;
   const x = f.x + dir*40;
   const y = f.y - 22;
@@ -202,22 +267,31 @@ function controlPlayer(dt){
   const speed = 620;
   const jumpV = -920;
 
-  if (keys.has("a")) { P.vx = lerp(P.vx, -speed, 0.18); P.facing = -1; }
-  else if (keys.has("d")) { P.vx = lerp(P.vx, speed, 0.18); P.facing = 1; }
+  // MOVE from mobile joystick OR keyboard
+  const kbLeft = keys.has("a");
+  const kbRight = keys.has("d");
+  const moveX = (Math.abs(input.moveX) > 0.05)
+    ? input.moveX
+    : (kbLeft ? -1 : kbRight ? 1 : 0);
+
+  if (moveX < -0.05){ P.vx = lerp(P.vx, -speed, 0.18); P.facing = -1; }
+  else if (moveX > 0.05){ P.vx = lerp(P.vx, speed, 0.18); P.facing = 1; }
   else P.vx = lerp(P.vx, 0, 0.22);
 
-  if (keys.has("w") && P.onGround){
+  // JUMP
+  const jumpPressed = consumeAction("jump") || consumeKeyOnce("w");
+  if (jumpPressed && P.onGround){
     P.vy = jumpV;
     P.onGround = false;
     P.pose = "jump";
     P.poseT = 0.12;
   }
 
-  // attacco e abilità
-  if (consumeKey("j")) attackBasic(P);
-  if (consumeKey("k")) abilityDash(P);
-  if (consumeKey("l")) abilityShockwave(P);
-  if (consumeKey("i")) abilityFireball(P);
+  // ATTACK + ABILITIES
+  if (consumeAction("attack") || consumeKeyOnce("j")) attackBasic(P);
+  if (consumeAction("dash") || consumeKeyOnce("k")) abilityDash(P);
+  if (consumeAction("shock") || consumeKeyOnce("l")) abilityShockwave(P);
+  if (consumeAction("fire") || consumeKeyOnce("i")) abilityFireball(P);
 
   // combo decay
   P.comboT = Math.max(0, P.comboT - dt);
@@ -227,14 +301,6 @@ function controlPlayer(dt){
   }
 }
 
-function consumeKey(k){
-  if (keys.has(k)){
-    keys.delete(k); // one-shot
-    return true;
-  }
-  return false;
-}
-
 // ---- ENEMY AI ----
 function controlEnemy(dt){
   E.aiT -= dt;
@@ -242,16 +308,13 @@ function controlEnemy(dt){
   const dist = Math.abs(dx);
   E.facing = dx >= 0 ? 1 : -1;
 
-  // muovi verso player
   const desire = clamp(dx, -1, 1) * 420;
   if (dist > 120) E.vx = lerp(E.vx, desire, 0.08);
   else E.vx = lerp(E.vx, 0, 0.12);
 
-  // decide azione
   if (E.aiT <= 0){
     E.aiT = 0.25 + Math.random()*0.35;
 
-    // abilità a caso se disponibili
     if (dist < 200 && E.cd.shock <= 0 && Math.random() < 0.25) abilityShockwave(E);
     else if (dist < 220 && E.cd.dash <= 0 && Math.random() < 0.25) abilityDash(E);
     else if (dist > 260 && E.cd.fire <= 0 && Math.random() < 0.25) abilityFireball(E);
@@ -259,55 +322,46 @@ function controlEnemy(dt){
   }
 }
 
-// ---- PHYSICS & UPDATE ----
+// ---- PHYSICS ----
 function stepFighter(f, dt){
-  // cooldowns
   f.cd.dash = Math.max(0, f.cd.dash - dt);
   f.cd.shock = Math.max(0, f.cd.shock - dt);
   f.cd.fire = Math.max(0, f.cd.fire - dt);
 
   f.invT = Math.max(0, f.invT - dt);
 
-  // pose timer
   f.poseT = Math.max(0, f.poseT - dt);
   if (f.poseT === 0 && f.pose !== "idle") f.pose = "idle";
 
-  // gravità
   f.vy += world.g * dt;
   f.x += f.vx * dt;
   f.y += f.vy * dt;
 
-  // limiti
   f.x = clamp(f.x, 80, W-80);
 
-  // floor
   if (f.y >= world.floorY){
     f.y = world.floorY;
     f.vy = 0;
     f.onGround = true;
   } else f.onGround = false;
 
-  // attrito
   if (f.onGround) f.vx *= 0.90;
 }
 
 function stepHitboxes(dt){
-  for (const hb of hitboxes){
-    hb.life -= dt;
-    hb.x += hb.owner.vx * dt * 0.0; // hitbox ancorata quasi al momento
-  }
-  // collisione
+  for (const hb of hitboxes) hb.life -= dt;
+
   for (const hb of hitboxes){
     if (hb.life <= 0) continue;
     const target = hb.owner.team === "P" ? E : P;
     const targetRect = { x: target.x-18, y: target.y-150, w: 36, h: 150 };
     const hbRect = { x: hb.x, y: hb.y, w: hb.w, h: hb.h };
     if (rectsOverlap(targetRect, hbRect)){
-      hb.life = 0; // una sola hit
+      hb.life = 0;
       hurt(target, hb.dmg, hb.kx, hb.ky, hb.owner);
     }
   }
-  // cleanup
+
   for (let i=hitboxes.length-1;i>=0;i--){
     if (hitboxes[i].life <= 0) hitboxes.splice(i,1);
   }
@@ -318,9 +372,8 @@ function stepProjectiles(dt){
     p.life -= dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    p.vy += 260 * dt; // leggera gravità
+    p.vy += 260 * dt;
 
-    // collisione con target
     const target = p.owner.team === "P" ? E : P;
     const targetRect = { x: target.x-18, y: target.y-150, w: 36, h: 150 };
     const pr = { x: p.x-p.r, y: p.y-p.r, w: p.r*2, h: p.r*2 };
@@ -331,9 +384,9 @@ function stepProjectiles(dt){
       hurt(target, 16, p.owner.facing*520, -420, p.owner);
     }
 
-    // fuori schermo
     if (p.x < -50 || p.x > W+50 || p.y > H+50) p.life = 0;
   }
+
   for (let i=proj.length-1;i>=0;i--){
     if (proj[i].life <= 0) proj.splice(i,1);
   }
@@ -357,39 +410,33 @@ function stepFX(dt){
   }
 }
 
-// ---- CAMERA / CINEMATIC ----
+// ---- CAMERA ----
 function applyCamera(dt){
   world.time += dt;
 
-  if (world.shakeT > 0){
-    world.shakeT -= dt;
-  } else {
-    world.shake = Math.max(0, world.shake - 40*dt);
-  }
+  if (world.shakeT > 0) world.shakeT -= dt;
+  else world.shake = Math.max(0, world.shake - 40*dt);
 
   const s = world.shake;
   const ox = (Math.random()*2-1) * s;
   const oy = (Math.random()*2-1) * s;
 
-  // finto zoom con slow motion: non scalare davvero la canvas, ma “spostiamo” leggermente la camera verso l’azione
   const focusX = (P.x + E.x) * 0.5;
   const camX = lerp(W/2, focusX, 0.08);
   const camY = H/2;
 
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.translate((W/2 - camX) * 0.12 + ox, (H/2 - camY) * 0.06 + oy);
+  ctx.translate((W/2 - camX) * 0.12 + ox, oy);
 }
 
 // ---- DRAW ----
 function drawArena(){
-  // bg gradient
   const g = ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0, "#07102a");
   g.addColorStop(1, "#050814");
   ctx.fillStyle = g;
   ctx.fillRect(0,0,W,H);
 
-  // stars
   ctx.globalAlpha = 0.16;
   for (let i=0;i<80;i++){
     const x = (i*97) % W;
@@ -399,11 +446,9 @@ function drawArena(){
   }
   ctx.globalAlpha = 1;
 
-  // floor
   ctx.fillStyle = "#0b1635";
   ctx.fillRect(0, world.floorY, W, H - world.floorY);
 
-  // “neon line”
   ctx.globalAlpha = 0.6;
   ctx.fillStyle = "#8fb0ff";
   ctx.fillRect(0, world.floorY-2, W, 2);
@@ -411,28 +456,23 @@ function drawArena(){
 }
 
 function drawStickman(f){
-  const headR = 14;
   const x = f.x, y = f.y;
+  const headR = 14;
 
-  // invincibility blink
   if (f.invT > 0 && Math.floor(world.time*24) % 2 === 0) ctx.globalAlpha = 0.35;
 
-  // color per team
   ctx.strokeStyle = (f.team === "P") ? "rgba(255,255,255,0.9)" : "rgba(255,180,180,0.9)";
   ctx.lineWidth = 4;
 
-  // head
   ctx.beginPath();
   ctx.arc(x, y-150, headR, 0, Math.PI*2);
   ctx.stroke();
 
-  // body
   ctx.beginPath();
   ctx.moveTo(x, y-136);
   ctx.lineTo(x, y-92);
   ctx.stroke();
 
-  // arms (pose-based)
   const dir = f.facing;
   const armY = y-120;
   ctx.beginPath();
@@ -453,7 +493,6 @@ function drawStickman(f){
   }
   ctx.stroke();
 
-  // back arm
   ctx.globalAlpha *= 0.7;
   ctx.beginPath();
   ctx.moveTo(x, armY);
@@ -462,7 +501,6 @@ function drawStickman(f){
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  // legs
   ctx.beginPath();
   ctx.moveTo(x, y-92);
   ctx.lineTo(x + 18, y-52);
@@ -535,16 +573,14 @@ function drawUIBars(){
   uiHP.textContent = String(P.hp);
   uiEHP.textContent = String(E.hp);
 
-  // overlay message in-canvas
   ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.font = "16px system-ui";
-  ctx.fillText("J combo (1-2-3)  K dash  L shockwave  I fireball", 18, 28);
+  ctx.fillText("Mobile: joystick + pulsanti (Jump/Atk/Dash/Shock/Fire)", 18, 28);
 
-  // cooldown indicator simple
   const cd = P.cd;
   ctx.font = "14px system-ui";
   ctx.fillStyle = "rgba(152,167,194,0.9)";
-  ctx.fillText(`CD K:${cd.dash.toFixed(1)}  L:${cd.shock.toFixed(1)}  I:${cd.fire.toFixed(1)}`, 18, 50);
+  ctx.fillText(`CD Dash:${cd.dash.toFixed(1)} Shock:${cd.shock.toFixed(1)} Fire:${cd.fire.toFixed(1)}`, 18, 50);
 
   if (P.hp <= 0 || E.hp <= 0){
     ctx.font = "28px system-ui";
@@ -560,13 +596,11 @@ function tick(now){
   let dt = Math.min(0.033, (now - last)/1000);
   last = now;
 
-  // slow motion
   if (world.slowT > 0){
     world.slowT = Math.max(0, world.slowT - dt);
     dt *= 0.55;
   }
 
-  // update
   if (P.hp > 0 && E.hp > 0){
     controlPlayer(dt);
     controlEnemy(dt);
@@ -578,7 +612,6 @@ function tick(now){
   stepProjectiles(dt);
   stepFX(dt);
 
-  // draw
   applyCamera(dt);
   drawArena();
   drawProjectiles();
